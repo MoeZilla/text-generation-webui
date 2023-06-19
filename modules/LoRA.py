@@ -30,12 +30,10 @@ def add_lora_to_model(lora_names):
             logger.error("This version of AutoGPTQ does not support LoRA. You need to install from source or wait for a new release.")
             return
 
-        if len(prior_set) > 0:
+        if prior_set:
             reload_model()
 
-        if len(shared.lora_names) == 0:
-            return
-        else:
+        if shared.lora_names:
             if len(shared.lora_names) > 1:
                 logger.warning('AutoGPTQ can only work with 1 LoRA at the moment. Only the first one in the list will be loaded')
 
@@ -44,18 +42,18 @@ def add_lora_to_model(lora_names):
             )
 
             lora_path = Path(f"{shared.args.lora_dir}/{shared.lora_names[0]}")
-            logger.info("Applying the following LoRAs to {}: {}".format(shared.model_name, ', '.join([lora_names[0]])))
+            logger.info(
+                f"Applying the following LoRAs to {shared.model_name}: {', '.join([lora_names[0]])}"
+            )
             shared.model = get_gptq_peft_model(shared.model, peft_config, lora_path)
-            return
-
-    # Transformers case
+        return
     else:
         # If no LoRA needs to be added or removed, exit
         if len(added_set) == 0 and len(removed_set) == 0:
             return
 
         # Add a LoRA when another LoRA is already present
-        if len(removed_set) == 0 and len(prior_set) > 0:
+        if len(removed_set) == 0 and prior_set:
             logger.info(f"Adding the LoRA(s) named {added_set} to the model...")
             for lora in added_set:
                 shared.model.load_adapter(Path(f"{shared.args.lora_dir}/{lora}"), lora)
@@ -68,12 +66,17 @@ def add_lora_to_model(lora_names):
             shared.model = shared.model.base_model.model
 
         if len(lora_names) > 0:
-            logger.info("Applying the following LoRAs to {}: {}".format(shared.model_name, ', '.join(lora_names)))
+            logger.info(
+                f"Applying the following LoRAs to {shared.model_name}: {', '.join(lora_names)}"
+            )
             params = {}
             if not shared.args.cpu:
                 params['dtype'] = shared.model.dtype
                 if hasattr(shared.model, "hf_device_map"):
-                    params['device_map'] = {"base_model.model." + k: v for k, v in shared.model.hf_device_map.items()}
+                    params['device_map'] = {
+                        f"base_model.model.{k}": v
+                        for k, v in shared.model.hf_device_map.items()
+                    }
                 elif shared.args.load_in_8bit:
                     params['device_map'] = {'': 0}
 

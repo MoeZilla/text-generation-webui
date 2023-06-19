@@ -23,8 +23,8 @@ class LlamaCppModel:
         self.model.__del__()
 
     @classmethod
-    def from_pretrained(self, path):
-        result = self()
+    def from_pretrained(cls, path):
+        result = cls()
         cache_capacity = 0
         if shared.args.cache_capacity is not None:
             if 'GiB' in shared.args.cache_capacity:
@@ -34,7 +34,7 @@ class LlamaCppModel:
             else:
                 cache_capacity = int(shared.args.cache_capacity)
 
-        logger.info("Cache capacity is " + str(cache_capacity) + " bytes")
+        logger.info(f"Cache capacity is {cache_capacity} bytes")
         params = {
             'model_path': str(path),
             'n_ctx': shared.args.n_ctx,
@@ -46,9 +46,9 @@ class LlamaCppModel:
             'n_gpu_layers': shared.args.n_gpu_layers
         }
 
-        self.model = Llama(**params)
+        cls.model = Llama(**params)
         if cache_capacity > 0:
-            self.model.set_cache(LlamaCache(capacity_bytes=cache_capacity))
+            cls.model.set_cache(LlamaCache(capacity_bytes=cache_capacity))
 
         # This is ugly, but the model and the tokenizer are the same object in this library.
         return result, result

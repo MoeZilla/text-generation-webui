@@ -31,9 +31,7 @@ theme = gr.themes.Default(
 
 def list_model_elements():
     elements = ['loader', 'cpu_memory', 'auto_devices', 'disk', 'cpu', 'bf16', 'load_in_8bit', 'trust_remote_code', 'load_in_4bit', 'compute_dtype', 'quant_type', 'use_double_quant', 'wbits', 'groupsize', 'model_type', 'pre_layer', 'triton', 'desc_act', 'no_inject_fused_attention', 'no_inject_fused_mlp', 'threads', 'n_batch', 'no_mmap', 'mlock', 'n_gpu_layers', 'n_ctx', 'llama_cpp_seed', 'gpu_split']
-    for i in range(torch.cuda.device_count()):
-        elements.append(f'gpu_memory_{i}')
-
+    elements.extend(f'gpu_memory_{i}' for i in range(torch.cuda.device_count()))
     return elements
 
 
@@ -47,10 +45,7 @@ def list_interface_input_elements(chat=False):
 
 
 def gather_interface_values(*args):
-    output = {}
-    for i, element in enumerate(shared.input_elements):
-        output[element] = args[i]
-
+    output = {element: args[i] for i, element in enumerate(shared.input_elements)}
     shared.persistent_interface_state = output
     return output
 
@@ -61,7 +56,7 @@ def apply_interface_values(state, use_persistent=False):
 
     elements = list_interface_input_elements(chat=shared.is_chat())
     if len(state) == 0:
-        return [gr.update() for k in elements]  # Dummy, do nothing
+        return [gr.update() for _ in elements]
     else:
         return [state[k] if k in state else gr.update() for k in elements]
 
