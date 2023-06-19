@@ -152,11 +152,12 @@ def download_model_wrapper(repo_id):
 
 
 def create_model_menus():
-    # Finding the default values for the GPU and CPU memories
-    total_mem = []
-    for i in range(torch.cuda.device_count()):
-        total_mem.append(math.floor(torch.cuda.get_device_properties(i).total_memory / (1024 * 1024)))
-
+    total_mem = [
+        math.floor(
+            torch.cuda.get_device_properties(i).total_memory / (1024 * 1024)
+        )
+        for i in range(torch.cuda.device_count())
+    ]
     default_gpu_mem = []
     if shared.args.gpu_memory is not None and len(shared.args.gpu_memory) > 0:
         for i in shared.args.gpu_memory:

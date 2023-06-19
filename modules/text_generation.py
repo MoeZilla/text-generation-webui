@@ -20,8 +20,7 @@ from modules.models import clear_torch_cache, local_rank
 def generate_reply(*args, **kwargs):
     shared.generation_lock.acquire()
     try:
-        for result in _generate_reply(*args, **kwargs):
-            yield result
+        yield from _generate_reply(*args, **kwargs)
     finally:
         shared.generation_lock.release()
 
@@ -78,7 +77,7 @@ def decode(output_ids, skip_special_tokens=True):
 
 # Removes empty replies from gpt4chan outputs
 def fix_gpt4chan(s):
-    for i in range(10):
+    for _ in range(10):
         s = re.sub("--- [0-9]*\n>>[0-9]*\n---", "---", s)
         s = re.sub("--- [0-9]*\n *\n---", "---", s)
         s = re.sub("--- [0-9]*\n\n\n---", "---", s)
@@ -108,7 +107,7 @@ def get_reply_from_output_ids(output_ids, input_ids, original_question, state, i
         # Prevent LlamaTokenizer from skipping a space
         if type(shared.tokenizer) is transformers.LlamaTokenizer and len(output_ids) > 0:
             if shared.tokenizer.convert_ids_to_tokens(int(output_ids[-new_tokens])).startswith('▁'):
-                reply = ' ' + reply
+                reply = f' {reply}'
 
     if not is_chat:
         reply = apply_extensions('output', reply)
@@ -117,11 +116,10 @@ def get_reply_from_output_ids(output_ids, input_ids, original_question, state, i
 
 
 def formatted_outputs(reply, model_name):
-    if any(s in model_name for s in ['gpt-4chan', 'gpt4chan']):
-        reply = fix_gpt4chan(reply)
-        return reply, generate_4chan_html(reply)
-    else:
+    if all(s not in model_name for s in ['gpt-4chan', 'gpt4chan']):
         return reply, generate_basic_html(reply)
+    reply = fix_gpt4chan(reply)
+    return reply, generate_4chan_html(reply)
 
 
 def set_manual_seed(seed):
@@ -204,10 +202,10 @@ def generate_reply_HF(question, original_question, seed, state, eos_token=None, 
         generate_params['suppress_tokens'] = [shared.tokenizer.eos_token_id]
 
     if shared.args.no_cache:
-        generate_params.update({'use_cache': False})
+        generate_params['use_cache'] = False
 
     if shared.args.deepspeed:
-        generate_params.update({'synced_gpus': True})
+        generate_params['synced_gpus'] = True
 
     # Encode the input
     input_ids = encode(question, add_bos_token=state['add_bos_token'], truncation_length=get_max_prompt_length(state))
@@ -222,9 +220,9 @@ def generate_reply_HF(question, original_question, seed, state, eos_token=None, 
     # Add the encoded tokens to generate_params
     question, input_ids, inputs_embeds = apply_extensions('tokenizer', state, question, input_ids, None)
     original_input_ids = input_ids
-    generate_params.update({'inputs': input_ids})
+    generate_params['inputs'] = input_ids
     if inputs_embeds is not None:
-        generate_params.update({'inputs_embeds': inputs_embeds})
+        generate_params['inputs_embeds'] = inputs_embeds
 
     # Create the StoppingCriteriaList with the stopping strings (needs to be done after tokenizer extensions)
     stopping_criteria_list = transformers.StoppingCriteriaList()
@@ -314,10 +312,9 @@ def generate_reply_custom(question, original_question, seed, state, eos_token=No
 
 
 def generate_reply_flexgen(question, original_question, seed, state, eos_token=None, stopping_strings=None, is_chat=False):
-    generate_params = {}
-    for k in ['max_new_tokens', 'do_sample', 'temperature']:
-        generate_params[k] = state[k]
-
+    generate_params = {
+        k: state[k] for k in ['max_new_tokens', 'do_sample', 'temperature']
+    }
     if state['stream']:
         generate_params['max_new_tokens'] = 8
 
@@ -333,9 +330,9 @@ def generate_reply_flexgen(question, original_question, seed, state, eos_token=N
     # Add the encoded tokens to generate_params
     question, input_ids, inputs_embeds = apply_extensions('tokenizer', state, question, input_ids, None)
     original_input_ids = input_ids
-    generate_params.update({'inputs': input_ids})
+    generate_params['inputs'] = input_ids
     if inputs_embeds is not None:
-        generate_params.update({'inputs_embeds': inputs_embeds})
+        generate_params['inputs_embeds'] = inputs_embeds
 
     # Update generate_params with the eos token and the stopping strings
     generate_params['stop'] = eos_token_ids[-1]
@@ -352,9 +349,8 @@ def generate_reply_flexgen(question, original_question, seed, state, eos_token=N
 
             yield get_reply_from_output_ids(output, input_ids, original_question, state, is_chat=is_chat)
 
-        # Stream the output naively for FlexGen since it doesn't support 'stopping_criteria'
         else:
-            for i in range(state['max_new_tokens'] // 8 + 1):
+            for _ in range(state['max_new_tokens'] // 8 + 1):
                 if shared.stop_everything:
                     break
 
@@ -367,7 +363,7 @@ def generate_reply_flexgen(question, original_question, seed, state, eos_token=N
 
                 yield get_reply_from_output_ids(output, original_input_ids, original_question, state)
                 input_ids = np.reshape(output, (1, output.shape[0]))
-                generate_params.update({'inputs': input_ids})
+                generate_params['inputs'] = input_ids
 
     except Exception:
         traceback.print_exc()

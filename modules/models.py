@@ -86,13 +86,11 @@ def load_tokenizer(model_name, model):
         tokenizer = AutoTokenizer.from_pretrained(Path(f"{shared.args.model_dir}/gpt-j-6B/"))
     elif type(model) is transformers.LlamaForCausalLM or "LlamaGPTQForCausalLM" in str(type(model)):
         # Try to load an universal LLaMA tokenizer
-        if not any(s in shared.model_name.lower() for s in ['llava', 'oasst']):
+        if all(s not in shared.model_name.lower() for s in ['llava', 'oasst']):
             for p in [Path(f"{shared.args.model_dir}/llama-tokenizer/"), Path(f"{shared.args.model_dir}/oobabooga_llama-tokenizer/")]:
                 if p.exists():
                     logger.info(f"Loading the universal LLaMA tokenizer from {p}...")
-                    tokenizer = LlamaTokenizer.from_pretrained(p, clean_up_tokenization_spaces=True)
-                    return tokenizer
-
+                    return LlamaTokenizer.from_pretrained(p, clean_up_tokenization_spaces=True)
         # Otherwise, load it from the model folder and hope that these
         # are not outdated tokenizer files.
         tokenizer = LlamaTokenizer.from_pretrained(Path(f"{shared.args.model_dir}/{model_name}/"), clean_up_tokenization_spaces=True)
@@ -131,14 +129,12 @@ def huggingface_loader(model_name):
         else:
             model = model.cuda()
 
-    # DeepSpeed ZeRO-3
     elif shared.args.deepspeed:
         model = LoaderClass.from_pretrained(Path(f"{shared.args.model_dir}/{model_name}"), torch_dtype=torch.bfloat16 if shared.args.bf16 else torch.float16)
         model = deepspeed.initialize(model=model, config_params=ds_config, model_parameters=None, optimizer=None, lr_scheduler=None)[0]
         model.module.eval()  # Inference
         logger.info(f"DeepSpeed ZeRO-3 is enabled: {is_deepspeed_zero3_enabled()}")
 
-    # Custom
     else:
         params = {
             "low_cpu_mem_usage": True,
@@ -159,12 +155,19 @@ def huggingface_loader(model_name):
                 # and https://huggingface.co/blog/4bit-transformers-bitsandbytes
                 quantization_config_params = {
                     'load_in_4bit': True,
-                    'bnb_4bit_compute_dtype': eval("torch.{}".format(shared.args.compute_dtype)) if shared.args.compute_dtype in ["bfloat16", "float16", "float32"] else None,
+                    'bnb_4bit_compute_dtype': eval(
+                        f"torch.{shared.args.compute_dtype}"
+                    )
+                    if shared.args.compute_dtype
+                    in ["bfloat16", "float16", "float32"]
+                    else None,
                     'bnb_4bit_quant_type': shared.args.quant_type,
                     'bnb_4bit_use_double_quant': shared.args.use_double_quant,
                 }
 
-                logger.warning("Using the following 4-bit params: " + str(quantization_config_params))
+                logger.warning(
+                    f"Using the following 4-bit params: {quantization_config_params}"
+                )
                 params['quantization_config'] = BitsAndBytesConfig(**quantization_config_params)
 
             elif shared.args.load_in_8bit and any((shared.args.auto_devices, shared.args.gpu_memory)):
@@ -221,8 +224,7 @@ def flexgen_loader(model_name):
                         num_bits=4, group_size=64,
                         group_dim=2, symmetric=False))
 
-    model = OptLM(f"facebook/{model_name}", env, shared.args.model_dir, policy)
-    return model
+    return OptLM(f"facebook/{model_name}", env, shared.args.model_dir, policy)
 
 
 def RWKV_loader(model_name):
@@ -300,7 +302,7 @@ def get_max_memory_dict():
         logger.warning(f"Auto-assiging --gpu-memory {suggestion} for your GPU to try to prevent out-of-memory errors. You can manually set other values.")
         max_memory = {0: f'{suggestion}GiB', 'cpu': f'{shared.args.cpu_memory or 99}GiB'}
 
-    return max_memory if len(max_memory) > 0 else None
+    return max_memory if max_memory else None
 
 
 def clear_torch_cache():

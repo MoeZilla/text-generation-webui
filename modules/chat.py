@@ -116,10 +116,7 @@ def generate_chat_prompt(user_input, state, **kwargs):
         rows.pop(1)
 
     prompt = wrapper.replace('<|prompt|>', ''.join(rows))
-    if also_return_rows:
-        return prompt, rows
-    else:
-        return prompt
+    return (prompt, rows) if also_return_rows else prompt
 
 
 def get_stopping_strings(state):
@@ -215,7 +212,11 @@ def chatbot_wrapper(text, history, state, regenerate=False, _continue=False, loa
         elif _continue:
             last_reply = [output['internal'][-1][1], output['visible'][-1][1]]
             if loading_message:
-                yield {'visible': output['visible'][:-1] + [[visible_text, last_reply[1] + '...']], 'internal': output['internal']}
+                yield {
+                    'visible': output['visible'][:-1]
+                    + [[visible_text, f'{last_reply[1]}...']],
+                    'internal': output['internal'],
+                }
 
     # Generating the prompt
     kwargs = {
@@ -229,7 +230,7 @@ def chatbot_wrapper(text, history, state, regenerate=False, _continue=False, loa
 
     # Generate
     cumulative_reply = ''
-    for i in range(state['chat_generation_attempts']):
+    for _ in range(state['chat_generation_attempts']):
         reply = None
         for j, reply in enumerate(generate_reply(prompt + cumulative_reply, state, eos_token=eos_token, stopping_strings=stopping_strings, is_chat=True)):
             reply = cumulative_reply + reply
@@ -256,7 +257,7 @@ def chatbot_wrapper(text, history, state, regenerate=False, _continue=False, loa
                 output['visible'][-1] = [visible_text, last_reply[1] + visible_reply]
                 if state['stream']:
                     yield output
-            elif not (j == 0 and visible_reply.strip() == ''):
+            elif j != 0 or visible_reply.strip() != '':
                 output['internal'][-1] = [text, reply.lstrip(' ')]
                 output['visible'][-1] = [visible_text, visible_reply.lstrip(' ')]
                 if state['stream']:
@@ -285,9 +286,9 @@ def impersonate_wrapper(text, start_with, state):
     prompt = generate_chat_prompt('', state, impersonate=True)
     stopping_strings = get_stopping_strings(state)
 
-    yield text + '...'
+    yield f'{text}...'
     cumulative_reply = text
-    for i in range(state['chat_generation_attempts']):
+    for _ in range(state['chat_generation_attempts']):
         reply = None
         for reply in generate_reply(prompt + cumulative_reply, state, eos_token=eos_token, stopping_strings=stopping_strings, is_chat=True):
             reply = cumulative_reply + reply
@@ -314,8 +315,14 @@ def generate_chat_reply(text, history, state, regenerate=False, _continue=False,
             yield history
             return
 
-    for history in chatbot_wrapper(text, history, state, regenerate=regenerate, _continue=_continue, loading_message=loading_message):
-        yield history
+    yield from chatbot_wrapper(
+        text,
+        history,
+        state,
+        regenerate=regenerate,
+        _continue=_continue,
+        loading_message=loading_message,
+    )
 
 
 # Same as above but returns HTML for the UI
@@ -365,7 +372,10 @@ def send_dummy_message(text):
 
 
 def send_dummy_reply(text):
-    if len(shared.history['visible']) > 0 and not shared.history['visible'][-1][1] == '':
+    if (
+        len(shared.history['visible']) > 0
+        and shared.history['visible'][-1][1] != ''
+    ):
         shared.history['visible'].append(['', ''])
         shared.history['internal'].append(['', ''])
 
@@ -391,18 +401,15 @@ def redraw_html(name1, name2, mode, style, reset_cache=False):
 
 def tokenize_dialogue(dialogue, name1, name2):
     history = []
-    messages = []
     dialogue = re.sub('<START>', '', dialogue)
     dialogue = re.sub('<start>', '', dialogue)
     dialogue = re.sub('(\n|^)[Aa]non:', '\\1You:', dialogue)
     dialogue = re.sub('(\n|^)\[CHARACTER\]:', f'\\g<1>{name2}:', dialogue)
     idx = [m.start() for m in re.finditer(f"(^|\n)({re.escape(name1)}|{re.escape(name2)}):", dialogue)]
-    if len(idx) == 0:
+    if not idx:
         return history
 
-    for i in range(len(idx) - 1):
-        messages.append(dialogue[idx[i]:idx[i + 1]].strip())
-
+    messages = [dialogue[idx[i]:idx[i + 1]].strip() for i in range(len(idx) - 1)]
     messages.append(dialogue[idx[-1]:].strip())
     entry = ['', '']
     for i in messages:
@@ -410,7 +417,7 @@ def tokenize_dialogue(dialogue, name1, name2):
             entry[0] = i[len(f'{name1}:'):].strip()
         elif i.startswith(f'{name2}:'):
             entry[1] = i[len(f'{name2}:'):].strip()
-            if not (len(entry[0]) == 0 and len(entry[1]) == 0):
+            if len(entry[0]) != 0 or len(entry[1]) != 0:
                 history.append(entry)
 
             entry = ['', '']
@@ -420,7 +427,7 @@ def tokenize_dialogue(dialogue, name1, name2):
         for column in row:
             print("\n")
             for line in column.strip().split('\n'):
-                print("|  " + line + "\n")
+                print(f"|  {line}" + "\n")
 
             print("|\n")
         print("------------------------------")
@@ -436,15 +443,15 @@ def save_history(mode, timestamp=False):
             return
 
         fname = f"Instruct_{datetime.now().strftime('%Y%m%d-%H%M%S')}.json"
+    elif shared.character == 'None':
+        return
+
     else:
-        if shared.character == 'None':
-            return
-
-        if timestamp:
-            fname = f"{shared.character}_{datetime.now().strftime('%Y%m%d-%H%M%S')}.json"
-        else:
-            fname = f"{shared.character}_persistent.json"
-
+        fname = (
+            f"{shared.character}_{datetime.now().strftime('%Y%m%d-%H%M%S')}.json"
+            if timestamp
+            else f"{shared.character}_persistent.json"
+        )
     if not Path('logs').exists():
         Path('logs').mkdir()
 

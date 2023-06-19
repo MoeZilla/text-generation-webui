@@ -19,7 +19,7 @@ params = {
     'port': int(os.environ.get('OPENEDAI_PORT')) if 'OPENEDAI_PORT' in os.environ else 5001,
 }
 
-debug = True if 'OPENEDAI_DEBUG' in os.environ else False
+debug = 'OPENEDAI_DEBUG' in os.environ
 
 # Slightly different defaults for OpenAI's API
 # Data type is important, Ex. use 0.0 for a float 0
@@ -64,7 +64,7 @@ try:
 except ImportError:
     pass
 
-st_model = os.environ["OPENEDAI_EMBEDDING_MODEL"] if "OPENEDAI_EMBEDDING_MODEL" in os.environ else "all-mpnet-base-v2"
+st_model = os.environ.get("OPENEDAI_EMBEDDING_MODEL", "all-mpnet-base-v2")
 embedding_model = None
 
 # little helper to get defaults if arg is present but None and should be the same type as default.
@@ -97,9 +97,7 @@ def float_list_to_base64(float_list):
     # Encode bytes into base64
     encoded_bytes = base64.b64encode(bytes_array)
 
-    # Turn raw base64 encoded bytes into ASCII
-    ascii_string = encoded_bytes.decode('ascii')
-    return ascii_string
+    return encoded_bytes.decode('ascii')
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -338,7 +336,7 @@ class Handler(BaseHTTPRequestHandler):
                         user_message_template = template[:bot_start].replace('<|user-message|>', '{message}').replace('<|user|>', instruct['user'])
                         bot_message_template = template[bot_start:].replace('<|bot-message|>', '{message}').replace('<|bot|>', instruct['bot'])
                         bot_prompt = bot_message_template[:bot_message_template.find('{message}')].rstrip(' ')
-                
+
                         role_formats = {
                             'user': user_message_template,
                             'assistant': bot_message_template,
@@ -388,7 +386,7 @@ class Handler(BaseHTTPRequestHandler):
                 # can't really truncate the system messages
                 system_msg = '\n'.join(system_msgs)
                 if system_msg and system_msg[-1] != '\n':
-                    system_msg = system_msg + '\n'
+                    system_msg += '\n'
 
                 system_token_count = len(encode(system_msg)[0])
                 remaining_tokens = req_params['truncation_length'] - system_token_count
@@ -414,11 +412,7 @@ class Handler(BaseHTTPRequestHandler):
                 object_type = 'text_completion'
 
                 # ... encoded as a string, array of strings, array of tokens, or array of token arrays.
-                if is_legacy:
-                    prompt = body['context']  # Older engines.generate API
-                else:
-                    prompt = body['prompt']  # XXX this can be different types
-
+                prompt = body['context'] if is_legacy else body['prompt']
                 if isinstance(prompt, list):
                     self.openai_error("API Batched generation not yet supported.")
                     return
@@ -457,7 +451,7 @@ class Handler(BaseHTTPRequestHandler):
                     chunk[resp_list][0]["message"] = {'role': 'assistant', 'content': ''}
                     chunk[resp_list][0]["delta"] = {'role': 'assistant', 'content': ''}
 
-                response = 'data: ' + json.dumps(chunk) + '\r\n\r\n'
+                response = f'data: {json.dumps(chunk)}' + '\r\n\r\n'
                 self.wfile.write(response.encode('utf-8'))
 
             # generate reply #######################################
@@ -530,7 +524,7 @@ class Handler(BaseHTTPRequestHandler):
                         # So yeah... do both methods? delta and messages.
                         chunk[resp_list][0]['message'] = {'content': new_content}
                         chunk[resp_list][0]['delta'] = {'content': new_content}
-                    response = 'data: ' + json.dumps(chunk) + '\r\n\r\n'
+                    response = f'data: {json.dumps(chunk)}' + '\r\n\r\n'
                     self.wfile.write(response.encode('utf-8'))
                     completion_token_count += len(encode(new_content)[0])
 
@@ -557,7 +551,7 @@ class Handler(BaseHTTPRequestHandler):
                     chunk[resp_list][0]['message'] = {'content': ''}
                     chunk[resp_list][0]['delta'] = {'content': ''}
 
-                response = 'data: ' + json.dumps(chunk) + '\r\n\r\ndata: [DONE]\r\n\r\n'
+                response = f'data: {json.dumps(chunk)}' + '\r\n\r\ndata: [DONE]\r\n\r\n'
                 self.wfile.write(response.encode('utf-8'))
                 # Finished if streaming.
                 if debug:
@@ -630,17 +624,19 @@ class Handler(BaseHTTPRequestHandler):
             )
 
             instruction_template = default_template
-            
+
             # Use the special instruction/input/response template for anything trained like Alpaca
-            if shared.settings['instruction_template'] and not (shared.settings['instruction_template'] in ['Alpaca', 'Alpaca-Input']):
+            if shared.settings['instruction_template'] and shared.settings[
+                'instruction_template'
+            ] not in ['Alpaca', 'Alpaca-Input']:
                 try:
                     instruct = yaml.safe_load(open(f"characters/instruction-following/{shared.settings['instruction_template']}.yaml", 'r'))
 
                     template = instruct['turn_template']
                     template = template\
-                        .replace('<|user|>', instruct.get('user', ''))\
-                        .replace('<|bot|>', instruct.get('bot', ''))\
-                        .replace('<|user-message|>', '{instruction}\n{input}')
+                            .replace('<|user|>', instruct.get('user', ''))\
+                            .replace('<|bot|>', instruct.get('bot', ''))\
+                            .replace('<|user-message|>', '{instruction}\n{input}')
 
                     instruction_template = instruct.get('context', '') + template[:template.find('<|bot-message|>')].rstrip(' ')
                     if instruct['user']:
@@ -653,7 +649,7 @@ class Handler(BaseHTTPRequestHandler):
 
             else:
                 print("Warning: Loaded default instruction-following template (Alpaca) for model.")
-                
+
 
             edit_task = instruction_template.format(instruction=instruction, input=input)
 
@@ -670,7 +666,7 @@ class Handler(BaseHTTPRequestHandler):
 
             if debug:
                 print({'edit_template': edit_task, 'req_params': req_params, 'token_count': token_count})
-            
+
             generator = generate_reply(edit_task, req_params, stopping_strings=req_params['custom_stopping_strings'], is_chat=False)
 
             longest_stop_len = max([len(x) for x in req_params['custom_stopping_strings']] + [0])
@@ -738,7 +734,7 @@ class Handler(BaseHTTPRequestHandler):
 
             width, height = [ int(x) for x in default(body, 'size', '1024x1024').split('x') ]  # ignore the restrictions on size
             response_format = default(body, 'response_format', 'url')  # or b64_json
-            
+
             payload = {
                 'prompt': body['prompt'],  # ignore prompt limit of 1000 characters
                 'width': width,
@@ -861,8 +857,6 @@ def run_server():
         print(f"\nLoaded embedding model: {st_model}, max sequence length: {embedding_model.max_seq_length}")
     except:
         print(f"\nFailed to load embedding model: {st_model}")
-        pass
-
     server_addr = ('0.0.0.0' if shared.args.listen else '127.0.0.1', params['port'])
     server = ThreadingHTTPServer(server_addr, Handler)
     if shared.args.share:
@@ -874,7 +868,7 @@ def run_server():
             print('You should install flask_cloudflared manually')
     else:
         print(f'Starting OpenAI compatible api:\nOPENAI_API_BASE=http://{server_addr[0]}:{server_addr[1]}/v1')
-        
+
     server.serve_forever()
 
 

@@ -15,7 +15,7 @@ class ExllamaModel:
         pass
 
     @classmethod
-    def from_pretrained(self, path_to_model):
+    def from_pretrained(cls, path_to_model):
 
         path_to_model = Path(f'{shared.args.model_dir}') / Path(path_to_model)
         tokenizer_model_path = path_to_model / "tokenizer.model"
@@ -24,8 +24,7 @@ class ExllamaModel:
         # Find the model checkpoint
         model_path = None
         for ext in ['.safetensors', '.pt', '.bin']:
-            found = list(path_to_model.glob(f"*{ext}"))
-            if len(found) > 0:
+            if found := list(path_to_model.glob(f"*{ext}")):
                 if len(found) > 1:
                     logger.warning(f'More than one {ext} model has been found. The last one will be selected. It could be wrong.')
 
@@ -43,7 +42,7 @@ class ExllamaModel:
         cache = ExLlamaCache(model)
         generator = ExLlamaGenerator(model, tokenizer, cache)
 
-        result = self()
+        result = cls()
         result.config = config
         result.model = model
         result.cache = cache
@@ -74,7 +73,7 @@ class ExllamaModel:
 
             decoded_text = self.generator.tokenizer.decode(self.generator.sequence[0][initial_len:])
             if has_leading_space:
-                decoded_text = ' ' + decoded_text
+                decoded_text = f' {decoded_text}'
 
             yield decoded_text
             if token.item() == self.generator.tokenizer.eos_token_id or shared.stop_everything:
